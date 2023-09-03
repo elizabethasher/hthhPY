@@ -28,7 +28,7 @@ def plot_errorbars(arg, **kws):
     
 #Use the look-up table to find the particle diameter and dLogDp calculated from POPS signal 
 def DiaLookUpTable(Composition):
-    file = '/Users/easher/Documents/NOAAweb/POPS_Sizes.csv'
+    file = '/Users/asher/Documents/NOAAweb/NZ_Paper_IOR.csv' #'/Users/easher/Documents/NOAAweb/POPS_Sizes.csv'
     df1=pd.read_csv(file,sep=',', dtype=None, engine='python')
 
     if Composition == 'Sulfate20':
@@ -45,9 +45,9 @@ def DiaLookUpTable(Composition):
     
     return dp
 
-    
+#calculate dNdLogDp    
 def DnDlogDp(Launch, Composition, B1, B2, B3, B4, B5, B6, B7, B8, B9, B10, B11, B12, B13, B14, B15, B16, B17, B18, B19, B20):
-    file_ior = '/Users/easher/Documents/NOAAweb/POPS_Sizes.csv'
+    file_ior = '/Users/asher/Documents/NOAAweb/NZ_Paper_IOR.csv'
     dfIOR = pd.read_csv(file_ior,sep=',', dtype=None, engine='python')
     #dLogDp = DLogDpLookUpTable(Composition)
     
@@ -74,7 +74,7 @@ def DnDlogDp(Launch, Composition, B1, B2, B3, B4, B5, B6, B7, B8, B9, B10, B11, 
     return dNdLogDp
 
 
-#calculates dry surface area
+#calculate dry surface area
 def CalcSurfArea(Composition, B1, B2, B3, B4, B5, B6, B7, B8, B9, B10, B11, B12, B13, B14, B15, B16, B17, B18, B19, B20):
     dp = DiaLookUpTable(Composition)
     if Composition == 'Sulfate20':
@@ -84,58 +84,67 @@ def CalcSurfArea(Composition, B1, B2, B3, B4, B5, B6, B7, B8, B9, B10, B11, B12,
             ndp = [B1, B2, B3, B4, B5, B6, B7, B8, B9, B10, B11, B12, B13, B14, B15] 
             
     Conc = pd.Series(ndp)
-    Rad =  pd.Series(np.divide(dp,2))*1000
+    Rad =  pd.Series(np.divide(dp,2))*1000 
     Area = np.pi*4*np.power(Rad,2)
     DrySurfaceArea = (Conc.mul(Area)).sum()*1E-6
     
-    return DrySurfaceArea #units are XXX
+    return DrySurfaceArea # units are um2 cm-3
     
 
-#functions to calculate ambient aerosol size
+#calculate ambient aerosol extinction using different methods
 def VPsca(Wavelength, IR, LaunchNo, Composition, RH, T, Fpops, rho_pops, Famb, rho_amb, B1, B2, B3, B4, B5, B6, B7, B8, B9, B10, B11, B12, B13, B14, B15, B16, B17, B18, B19, B20):
-
+    dp = DiaLookUpTable(Composition)
     if Composition == 'Sulfate20':
         ndp = [B1, B2, B3, B4, B5, B6, B7, B8, B9, B10, B11, B12, B13, B14, B15, B16, B17, B18, B19, B20] 
     else:
         ndp = [B1, B2, B3, B4, B5, B6, B7, B8, B9, B10, B11, B12, B13, B14, B15] 
         
-    dpAmbnp_K = KKcalcDamb(RH, T, Composition)
-    dpAmbnp_J = Jonsson1995_calcDamb(Composition, Fpops, rho_pops, Famb, rho_amb)
+    #dpAmbnp_K = KKcalcDamb(RH, T, Composition)
+    dpAmbnp_SH = Steele_Hamill_1981_J1995_calcDamb(Composition, Fpops, rho_pops, Famb, rho_amb) #Steele and Hamill, 1981 method, also used by Jonsson et al. 1995. F is % wt., rho is density.
+    
+    dp_m = dp
     
     if LaunchNo == 'run004':
         ndp = [B3, B4, B5, B6, B7, B8, B9, B10, B11, B12, B13, B14, B15, B16, B17, B18, B19, B20]
-        dpAmbnp_K = dpAmbnp_K[2:]
-        dpAmbnp_J = dpAmbnp_J[2:]
-
-    [Bext_K, Bsca_K, Babs_K, bigG_K, Bpr_K, Bback_K, Bratio_K] = PyMieScatt.Mie_SD(IR, Wavelength, dpAmbnp_K, ndp, nMedium=1.0, interpolate=True, SMPS = True,  asDict=False) 
-    [Bext_J, Bsca_J, Babs_J, bigG_J, Bpr_J, Bback_J, Bratio_J] = PyMieScatt.Mie_SD(IR, Wavelength, dpAmbnp_J, ndp, nMedium=1.0, interpolate=True, SMPS = True,  asDict=False) 
-
-    return Bext_K, Bext_J
-
-def KKcalcDamb(RH, T, Composition):
-    
-    dp = DiaLookUpTable(Composition) #assuming Diameter with RH = 0% (at equilibirum)
-    dpAmb = []
+        #dpAmbnp_K = dpAmbnp_K[2:]
+        dpAmbnp_SH = dpAmbnp_SH[2:]
+        dp_m = dp_m[2:]
         
-    Kchem = 0.87 # for H2SO4
-    for i in dp:
-        Dd = i
-        func = lambda Drh : (Drh**3 - Dd**3)/ (Drh**3 - Dd**3*(1-Kchem))*np.exp(4*0.072*0.018/(8.314*T*1000*Drh))-RH/100
-        Drh_initial_guess = Dd # this is true unless RH is very high and the particle is very small... then its size may change a lot
-        Drh_solution = fsolve(func, Drh_initial_guess)
-        dpAmb.append(Drh_solution[0])
-    dpAmbn= np.array(dpAmb).tolist() #calculated aerosol Diameter with ambient RH and T)
+    [Bext_m, Bsca_m, Babs_m, bigG_m, Bpr_m, Bback_m, Bratio_m] = PyMieScatt.Mie_SD(IR, Wavelength, dp_m, ndp, nMedium=1.0, interpolate=True, SMPS = True,  asDict=False) 
+    #[Bext_K, Bsca_K, Babs_K, bigG_K, Bpr_K, Bback_K, Bratio_K] = PyMieScatt.Mie_SD(IR, Wavelength, dpAmbnp_K, ndp, nMedium=1.0, interpolate=True, SMPS = True,  asDict=False) 
+    [Bext_SH, Bsca_SH, Babs_SH, bigG_SH, Bpr_SH, Bback_SH, Bratio_SH] = PyMieScatt.Mie_SD(IR, Wavelength, dpAmbnp_SH, ndp, nMedium=1.0, interpolate=True, SMPS = True,  asDict=False) 
+    #PyMieScatt provides extinction is in megameters-1. To get to km-1 divide by 1000
+    Bext_m = Bext_m/1000
+    #Bext_K = Bext_K/1000
+    Bext_SH = Bext_SH/1000
+    return Bext_m, Bext_SH #units are km-1
+
+#calculate ambient aerosol size using KK theory. 
+# def KKcalcDamb(RH, T, Composition):
     
-    #Diameter difference (not plotted here)
-    DpDiff = pd.DataFrame({'Dp':dp, 'dpAmbn':dpAmbn})
-    DpDiff['Diff'] =  DpDiff['dpAmbn'] - DpDiff['Dp']
-    DpDiff['Ratio'] = DpDiff['dpAmbn'] / DpDiff['Dp']
+#     dp = DiaLookUpTable(Composition) #assuming Diameter with RH = 0% (at equilibirum)
+#     dpAmb = []
+        
+#     Kchem = 0.87 # for H2SO4
+#     for i in dp:
+#         Dd = i
+#         func = lambda Drh : (Drh**3 - Dd**3)/ (Drh**3 - Dd**3*(1-Kchem))*np.exp(4*0.072*0.018/(8.314*T*1000*Drh))-RH/100
+#         Drh_initial_guess = Dd # this is true unless RH is very high and the particle is very small... then its size may change a lot
+#         Drh_solution = fsolve(func, Drh_initial_guess)
+#         dpAmb.append(Drh_solution[0])
+#     dpAmbn= np.array(dpAmb).tolist() #calculated aerosol Diameter with ambient RH and T)
+    
+#     #Diameter difference (not plotted here)
+#     DpDiff = pd.DataFrame({'Dp':dp, 'dpAmbn':dpAmbn})
+#     DpDiff['Diff'] =  DpDiff['dpAmbn'] - DpDiff['Dp']
+#     DpDiff['Ratio'] = DpDiff['dpAmbn'] / DpDiff['Dp']
 
-    DpDiff['RH'] = RH
+#     DpDiff['RH'] = RH
 
-    return dpAmbn
+#     return dpAmbn #untis are nm 
 
-def SADrh(Composition, RH, T, Fpops, rho_pops, Famb, rho_amb, B1, B2, B3, B4, B5, B6, B7, B8, B9, B10, B11, B12, B13, B14, B15, B16, B17, B18, B19, B20): #was based on date, can do based on composition, no?
+#calculate ambient aerosol surface area
+def SAD(Composition, RH, T, Fpops, rho_pops, Famb, rho_amb, B1, B2, B3, B4, B5, B6, B7, B8, B9, B10, B11, B12, B13, B14, B15, B16, B17, B18, B19, B20): #was based on date, can do based on composition, no?
         
     if Composition == 'Sulfate20':
 
@@ -145,21 +154,22 @@ def SADrh(Composition, RH, T, Fpops, rho_pops, Famb, rho_amb, B1, B2, B3, B4, B5
         ndp = [B1, B2, B3, B4, B5, B6, B7, B8, B9, B10, B11, B12, B13, B14, B15] 
         
 
-    dpAmbn_K = KKcalcDamb(RH, T, Composition)  
-    dpAmbn_J = Jonsson1995_calcDamb(Composition, Fpops, rho_pops, Famb, rho_amb)
-        
-    Conc = pd.Series(ndp)
-    Rad_K =  pd.Series(np.divide(dpAmbn_K,2))*1000
-    Area_K = np.pi*4*np.power(Rad_K,2)
-    AmbSurfaceArea_K = (Conc.mul(Area_K)).sum()*1E-6
-    Conc = pd.Series(ndp)
-    Rad_J =  pd.Series(np.divide(dpAmbn_J,2))*1000
-    Area_J = np.pi*4*np.power(Rad_J,2)
-    AmbSurfaceArea_J = (Conc.mul(Area_J)).sum()*1E-6
+    dp = DiaLookUpTable(Composition) 
+    dpAmbn_SH = Steele_Hamill_1981_J1995_calcDamb(Composition, Fpops, rho_pops, Famb, rho_amb)
     
-    return AmbSurfaceArea_K, AmbSurfaceArea_J
+    Conc = pd.Series(ndp)
+    Conc = pd.Series(ndp)
+    Rad =  pd.Series(np.divide(dp,2))*1000
+    Area = np.pi*4*np.power(Rad,2)
+    MeasSurfaceArea = (Conc.mul(Area)).sum()*1E-6
+    Conc = pd.Series(ndp)
+    Rad_SH =  pd.Series(np.divide(dpAmbn_SH,2))*1000
+    Area_SH = np.pi*4*np.power(Rad_SH,2)
+    AmbSurfaceArea_SH = (Conc.mul(Area_SH)).sum()*1E-6
+    
+    return MeasSurfaceArea, AmbSurfaceArea_SH #units are um2 cm-3
 
-
+#calculate aerosol mass mixing ratios and mass column
 def MassBCalc(LaunchNo, Composition, perwt_pops, LFEtempC, Pressure, AirTemp, B1, B2, B3, B4, B5, B6, B7, B8, B9, B10, B11, B12, B13, B14, B15, B16, B17, B18, B19, B20):
     
     dp = DiaLookUpTable(Composition)
@@ -194,83 +204,24 @@ def MassBCalc(LaunchNo, Composition, perwt_pops, LFEtempC, Pressure, AirTemp, B1
     #calculate relative uncertainty 
     Vol_unc = Vol_unc_a/Vol # a decimal value (%/100)
     
-    #print(Vol_unc) #1.83 was assumed to be the density. How does this impact uncertainty?
-    if (perwt_pops >= 0.8):
-        Density_lb =  DensityCalc(perwt_pops, LFEtempC)
-        Density_ub =  DensityCalc(1.0, LFEtempC)
-        Density = np.mean([Density_lb, Density_ub])
-        Density_unc = (Density_ub - Density_lb)/Density # a percentage...
-    else:
-        Density =  DensityCalc(perwt_pops, LFEtempC)
-        Density_unc = 0.0
-    
+    #calculate uncertainty in density
+    [Density, Density_calc_unc]=  DensityCalc(perwt_pops, LFEtempC)
+    Density_unc = np.sqrt(0.06**2 + 0.015**2 + 0.02**2 + Density_calc_unc**2) # total uncertainty including uncertainty in H2O, in Temperature, in percent wt calculation and in density calculation
     #propagate uncertainty (volume and density - multiplication formula)
     Unc = ((Vol_unc)**2 + (Density_unc)**2)**(0.5)
-    Mass = Vol * Density *1E6 *1E-21 #nm3 -> cm3 aerosol   cm3 -> m3  air; 1.8 g cm3 density of sulfate aerosol. final units g/ ambient m3 air 
-    Mass_ugpkgSTP = Mass / Pressure * Rgas * AirTemp *1E6 #g m-3 Pa-1 * K * Pa  m3 K-1 kg -1 *ug g-1 aerosol
-
+    #calculate mass and mass mixing ratios
+    Mass = Vol * Density *1E6 *1E-21 #nm3 -> cm3 aerosol   cm3 -> m3  air; 1.8 g cm3 density of sulfate aerosol. final units g H2SO4 / ambient m3 air 
+    Mass_ugpkgSTP = Mass / Pressure * Rgas * AirTemp *1E6 #g m-3 Pa-1 * K * Pa  m3 K-1 kg -1 *ug kg-1 aerosol in air
+    MassSm2 = Mass * VertRes /98.079 * 32.065 #calculate mass column (units are g S/m2)
     
+    #calculate mol/mol air
     mol_per_vol = Vol * Density / 98.08 * 1E6 * 1E-21 # final units mol/ ambient m3
     molpmolair =  mol_per_vol / Pressure * R_unv * AirTemp 
-    
-    MassSm2 = molpmolair *2.69E25/6.022E23 * Pressure / AirTemp * 273.15 / 100000 * 32.065 *VertRes 
-    #print(mol_per_vol*R_unv*2.69E25/6.022E23 * 273.15 / 100000 * 250 * 32.065)
-    #Vol*1E-21*1E6# convert nm3/cm3 to cm3/m3 *1.8 g/cm3  PV = nRT V = n*R T/ P (m3 = J/K/kg * K * Pa)
-    return MassSm2, Mass_ugpkgSTP # MassSm2 final units g/m3 air at STP; 
+    #MassSm2 = molpmolair *2.69E25/6.022E23 * Pressure / AirTemp * 273.15 / 100000 * 32.065 *VertRes 
 
+    return MassSm2, Mass_ugpkgSTP, Unc 
 
-def ppCalc(Composition, perwt_pops, LFEtempC, Pressure, AirTemp, B1, B2, B3, B4, B5, B6, B7, B8, B9, B10, B11, B12, B13, B14, B15, B16, B17, B18, B19, B20):
-    
-    dp = DiaLookUpTable(Composition)
-        
-    #constants
-    R_unv = 8.3144 #m3 Pa K-1 mol -1
-    Pressure = Pressure * 100    #convert Pressure hPa to Pa
-    convFac = 1E6 #g to ug convert mass of aerosols
-    convFac2 = 1E9
-    mwH2SO4 = 98.08
-    
-    if Composition == 'Sulfate':
-        ndp = [B1, B2, B3, B4, B5, B6, B7, B8, B9, B10, B11, B12, B13, B14, B15] 
-        dp_unc = [0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15]
-    else:
-        ndp = [B1, B2, B3, B4, B5, B6, B7, B8, B9, B10, B11, B12, B13, B14, B15, B16, B17, B18, B19, B20] 
-        dp_unc = [0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15]
-
-    Conc = pd.Series(ndp)
-    Rad =  pd.Series(np.divide(dp,2))
-    dp_Unc = pd.Series(dp_unc)
-    
-    V = np.pi*4/3*np.power(Rad,3)
-    Vol_p = Conc.mul(V)
-    Vol = Vol_p.sum()
-    #volume uncertainty 
-    #propagate per particle volume uncertainty (using dp & power formula)
-    Vol_p_u = Vol_p*(dp_Unc*3)
-    #propagate total volume uncertainty (using per particle volume uncertainty & addition formula)
-    Vol_unc_a = ((Vol_p_u**2).sum())**(0.5)
-    #calculate relative uncertainty 
-    Vol_unc = Vol_unc_a/Vol # a decimal value (%/100)
-    
-    if (perwt_pops >= 0.8):
-        Density_lb =  DensityCalc(perwt_pops, LFEtempC)
-        Density_ub =  DensityCalc(1.0, LFEtempC)
-        Density = np.mean([Density_lb, Density_ub])
-        Density_unc = (Density_ub - Density_lb)/Density # a percentage...
-    else:
-        Density =  DensityCalc(perwt_pops, LFEtempC)
-        Density_unc = 0.0
-    
-    #propagate uncertainty (volume and density - multiplication formula)
-    Unc = ((Vol_unc)**2 + (Density_unc)**2)**(0.5)
-    
-    #print(Vol_unc)
-    mol_per_vol = Vol* Density / mwH2SO4  * convFac * 1E-21 #1.8 density of sulfate aerosol. final units mol/ ambient m3
-    molpmolair =  mol_per_vol / Pressure * R_unv * AirTemp * convFac2 #ppb mol/mol - mol m-3 Pa-1 K * Pa K-1 m3 mol-1 (1000 L m-3, 22.4 L per mole air STP)
-    partpress_mPa = mol_per_vol* R_unv * AirTemp*1000 #mPa
-    return partpress_mPa, Unc #return molpmolair #final units ppb 
-
-
+#calculate effective radius. computationally intensive
 def eRadCalc(Composition, B1, B2, B3, B4, B5, B6, B7, B8, B9, B10, B11, B12, B13, B14, B15, B16, B17, B18, B19, B20):
 
     dp = DiaLookUpTable(Composition)
@@ -291,28 +242,29 @@ def eRadCalc(Composition, B1, B2, B3, B4, B5, B6, B7, B8, B9, B10, B11, B12, B13
 
     return Rad
 
+#calculate lower limit of detection for SO2sonde (personal communication Paul Walter 01/2023)
+def LLD(launchNo, PartialPressure, MMr):
 
-
-def LLD(launchNo, PartialPressure):
-    #lower limit of detection for SO2sonde (personal communication Paul Walter 01/2023)
     if launchNo == '﻿Launch 2 - 01/22':
-        DDL = 0.03
+        DDL = 0.0338
         
     elif launchNo == '﻿Launch 5 - 01/24':
-        DDL = 0.02
+        DDL = 0.0181
         
     elif launchNo == '﻿Launch 8 - 01/25':
-        DDL = 0.037
+        DDL = 0.0345
 
     if PartialPressure <= DDL:
-        PartialPress_corr = np.NaN
+        MMr_corr = np.NaN
+        
     else:
-        PartialPress_corr = PartialPressure
-    return PartialPress_corr
+        MMr_corr = MMr
+    return MMr_corr
+
 
 def getPOPSdf(vertBins):
     #read in POPS data
-    os.chdir('/Users/easher/Desktop/Tonga/Submission/POPSDataForPublication/Finalized/')
+    os.chdir('/Users/asher/Documents/PapersInProgress/Tonga/Submission/POPSDataForPublication/Finalized/')
     filelist = glob.glob('*.csv')
     #path = '/Users/easher/Desktop/Tonga/Submission/POPSDataForPublication/Finalized'
     df = pd.DataFrame()
@@ -350,7 +302,8 @@ def getPOPSdf(vertBins):
         if (file == 'run004_so2_pops_20220123.csv'):
                 df1['B1'] = np.NAN
                 df1['B2'] = np.NAN 
-        df = df.append(df1)
+        #df = df.append(df1)
+        df = pd.concat([df, df1],  ignore_index=True, sort=False) 
         del df1
 
     
@@ -368,7 +321,7 @@ def getPOPSdf(vertBins):
     df['Composition'] = df.apply(lambda x: Plume(x['LaunchNo'], x['Flight'], x['GPSaltkm']), axis=1)
     df['Aer_Conc'] =  df[['B1', 'B2','B3','B4', 'B5', 'B6', 'B7','B8', 'B9','B10', 'B11', 'B12', 'B13', 'B14', 'B15', 'B16', 'B17', 'B18', 'B19', 'B20']].sum(axis=1)
     df['Dry Surface Area Density'] = df.apply(lambda x: CalcSurfArea(x['Composition'], x['B1'], x['B2'], x['B3'], x['B4'], x['B5'], x['B6'], x['B7'], x['B8'], x['B9'], x['B10'], x['B11'], x['B12'], x['B13'], x['B14'], x['B15'], x['B16'], x['B17'], x['B18'], x['B19'], x['B20']), axis=1)
-    df['Effective Radius'] = df.apply(lambda x: eRadCalc(x['Composition'], x['B1'], x['B2'], x['B3'], x['B4'], x['B5'], x['B6'], x['B7'], x['B8'], x['B9'], x['B10'], x['B11'], x['B12'], x['B13'], x['B14'], x['B15'], x['B16'], x['B17'], x['B18'], x['B19'], x['B20']), axis=1)
+    #df['Effective Radius'] = df.apply(lambda x: eRadCalc(x['Composition'], x['B1'], x['B2'], x['B3'], x['B4'], x['B5'], x['B6'], x['B7'], x['B8'], x['B9'], x['B10'], x['B11'], x['B12'], x['B13'], x['B14'], x['B15'], x['B16'], x['B17'], x['B18'], x['B19'], x['B20']), axis=1)
     
     
     df['Altitude (km)'] = pd.cut(df['GPSaltkm'], bins=vertBins,labels = AltLabels, include_lowest=True) 
@@ -392,7 +345,7 @@ def GoffGratch(TFpHyg, Temp):
 
     else:
         e = 10**(-9.09718*(273.16/TFpHyg - 1) - 3.56654*math.log10(273.16/TFpHyg) + 0.876793*(1-TFpHyg/273.16) + math.log10(6.1173))
-        es = (math.exp(-0.58002206*10**4/Temp + 0.13914993*10**1 - 0.48640239*10**(-1)*Temp + 0.41764768*10**-4*Temp**2 -0.14452093*10**(-7)*Temp**3 + 0.65459673*10**1*math.log(Temp)))/100
+        es = (math.exp(-0.58002206*10**4/Temp + 0.13914993*10**1 - 0.48640239*10**(-1)*Temp + 0.41764768*10**(-4)*Temp**2 -0.14452093*10**(-7)*Temp**3 + 0.65459673*10**1*math.log(Temp)))/100
         RH = e/es*100
         
     return (RH, e)
@@ -429,7 +382,39 @@ def PwLookuptable(T1, Pwa):
     PwTable.drop(['a', 'b', 'c', 'T'], axis = 1, inplace=True)
     PwDict = pd.Series(PwTable.Pw_calc.values,index=PwTable.W_1).to_dict()
     #find the closest dictionary look-up value
-    W, Pw_t = min(PwDict.items(), key=lambda x: abs(Pw - x[1]))
+    W_T, Pw_t = min(PwDict.items(), key=lambda x: abs(Pw - x[1]))
+    W = W_T
+    
+    #if the wt% is greater than or equal to 0.8, use the Gmitro and Vermeulen  1964 parameterization eq. 16; partial molar properties are listed in Table 3.
+    if W_T >= 0.8:
+        W_GV = pd.Series([0.80, 0.82, 0.84, 0.86, 0.88, 0.90, 0.91, 0.92, 0.93, 0.94, 0.95, 0.96, 0.97, 0.98]) #maybe go up to 0.98 W?
+        R = 1.98726
+        Cp_298 = pd.Series([9.77, 10.36, 13.78, 18.96, 22.13, 22.76, 22.30, 21.48, 20.44, 19.32, 18.06, 16.64, 15.05, 13.25])
+        L_298 = pd.Series([-3475, -4015, -4656, -5319, -5938, -6419, -6627, -6816, -6983, -7139, -7286, -7433, -7574, -7712])
+        F_F0 = pd.Series([-3090, -3427, -3789, -4167, -4557, -4960, -5165, -5375, -5595, -5830, -6090, -6390, -6741, -7204])
+        alpha = pd.Series([0.0114, 0.0568, 0.1233, 0.0666, -0.0120, -0.0346, -0.0398, -0.0427, -0.0436, -0.0428, -0.0405, -0.0368, -0.0314, -0.024])
+        
+        A1 = -3.67340
+        B1 = -4143.5
+        C1 =  10.24353
+        D1 = 0.618943E-3
+        E = 0
+        #calculate the constants based on constants above and Temperature   
+        A = A1 + 1/R * (Cp_298 - 298.15 * alpha)
+        B = B1 + 1/R * (L_298 - 298.15 * Cp_298 + 298.15**2/2 * alpha)
+        C = C1 + 1/R * (Cp_298 + (F_F0 - L_298) * 1/298.15)
+        D = D1 - alpha/(2 * R)
+        #calculate Pw
+        
+        PwTable_GV = pd.DataFrame({'A': A, 'B': B, 'C': C, 'D': D, 'E': E, 'W': W_GV})#
+        PwTable_GV['T'] = T
+        
+        PwTable_GV['pH2O'] = PwTable_GV.apply(lambda x: PwCalc_GV1964(x['A'], x['B'], x['C'], x['D'], x['E'], x['T']), axis = 1)                          
+        
+        PwTable_GV.drop(['A', 'B', 'C', 'D', 'E', 'T'], axis = 1, inplace=True)
+        PwDict_GV = pd.Series(PwTable_GV.pH2O.values,index=PwTable_GV.W).to_dict()
+        W_GV, Pw_t = min(PwDict_GV.items(), key=lambda x: abs(Pw - x[1]))
+        W = W_GV
 
     return W
 
@@ -440,20 +425,66 @@ def PwCalc(a, b, c, T):
         Pw_0 = math.exp(a + b/T + c/(T**2))
         Pw = np.round_(Pw_0, decimals = 5)
         return Pw
+    
+def PwCalc_GV1964(A,B,C,D,E,T):
+    #Gmitro and Vermeulen 1964 AIChE Journal vol. 10 (5) pg. 740 746 eq. 16
+        Pwlog = A * np.log(298.15/T) + B/T + C + D*T + E * np.power(T,2)
+        Pw = np.exp(Pwlog) #units of partial pressure in atmospheres
+        Pwa = Pw * 1013.25#conversion factor from atmospheres to mb
+        return Pwa
 
 
 def DensityCalc(perWt, Tc):
 #density parameterization Oca et al., 2018 J. Chem. & Eng. Data vol. 63 (9)
-        T = Tc + 273.15
+        T = Tc + 273.15 #convert C to K
         PolyCoeff = [1022, -0.5076, 2.484E-4, 976.4, -1.015, 1, 237.8, 1, 1]
         Density = PolyCoeff[0] + PolyCoeff[1] * T + PolyCoeff[2] * T**2 + PolyCoeff[3] * perWt + PolyCoeff[4] + PolyCoeff[5] * perWt**2 
-        Density = Density / 1000 #convert from kg/m3 to g/cm3
-        return Density
-    
+        Density_c = Density / 1000 #convert from kg/m3 to g/cm3
+        Density_unc = 0.02 #uncertainty reported 
+        
+        if perWt >= 0.68:
+            #use Washburn analytical tables of chemistry 1928 (0 C) similar to POPS internal temperatures ~ -5 C to +5 C when percent weight 
+            Wi = np.linspace(0.68, 0.98, 31)
+            W = pd.Series(Wi)
+            rho = pd.Series([1.6059, 1.6176, 1.6293, 1.6411, 1.6529, 1.6648, 1.6768, 1.6888, 1.7008, 1.7128, 1.7247, 1.7365, 1.7482, 1.7597,
+                1.7709, 1.7815, 1.7916, 1.8009, 1.8095, 1.8173, 1.8243, 1.8306, 1.8361, 1.8410, 1.8453, 1.8490, 1.8520, 1.8544, 1.8560, 1.8569, 1.8567])
+          
+            WDensityTable = pd.DataFrame({'rho': rho, 'W': W})#
 
-def Jonsson1995_calcDamb(Composition, Fpops, rho_pops, Famb, rho_amb):
+            WDensityDict = pd.Series(WDensityTable.W.values,index=WDensityTable.rho).to_dict()
+            
+            Density_W, W = min(WDensityDict.items(), key=lambda x: abs(perWt - x[1]))
+            
+            #if W >0.6
+            p1 = 473.52 + 4903.99 * W -11916.50 * np.power(W,2) + 15057.60 * np.power(W,3) - 6668.37 * np.power(W,4)
+            p2 =  250.52 +  5733.14* W - 13138.14 * np.power(W,2) + 15565.78 * np.power(W,3) - 6618.70* np.power(W,4)
+            
+            Density = p1 + (p2-p1) * ((T - 273.15)/69) #density in kg/m3 want it in g cm-3
+            Density_c = Density/1000
+        
+            Density_unc = (Density_c - Density_W)/Density_c
+        return Density_c, Density_unc
+    
+def Steele_Hamill_calcDamb(Composition, Fpops, rho_pops, Famb, rho_amb, perwt_pops, perwt_amb):
+#steele & Hamill 1981 eq 5) 4/3 Pi * r3_amb * rho_amb = ma + mw = 100 ma/ W %
+#ma should be the same measured on POPS or in ambient air, so...
+#ma = W %/100 * 4/3 pi * r3_pops * rho_pops (or d instead of r, as shown below. This function returns the same result as the function below)
+    d_pops = DiaLookUpTable(Composition)
+    dpAmb = []
+        
+    for i in d_pops:
+        r_pops = i * 0.5
+        r_amb3 = 0.75 * np.pi * rho_amb * perwt_pops * 0.01 * 1.3333333333 * np.pi * np.power(r_pops, 3) * rho_pops
+        Damb = np.cbrt(r_amb3) * 2
+        dpAmb.append(Damb)
+        
+    dpAmbn= np.array(dpAmb).tolist()
+       
+
+def Steele_Hamill_1981_J1995_calcDamb(Composition, Fpops, rho_pops, Famb, rho_amb):
 #calculate ambient aerosol diameter for H2SO4 specifically 
-#Jonsson et al., 1995 J. of Atmos. & Oceanic Tech. Vol. 12 (1)
+#This calculation is identical to method using Steele & Hamill 1981 (above). It assumes that particles are at equilibrium both at the time of measurement as well as in ambient air,
+#and that only H2O, not H2SO4 is lost from particles during sampling. Also used by Jonsson et al., 1995 J. of Atmos. & Oceanic Tech. Vol. 12 (1), as discussed. in Asher et al.
     
     dp = DiaLookUpTable(Composition)
     dpAmb = []
@@ -467,7 +498,7 @@ def Jonsson1995_calcDamb(Composition, Fpops, rho_pops, Famb, rho_amb):
     return dpAmbn
    
 def Plume(LaunchNo, Flight, Altitude):
-    #determine based on Launch (TR2Ex or B2SAP) if telemetered data were 15 or 20 bins
+    #determine based on Launch (TR2Ex or B2SAP) if telemetered data had 15 or 20 particle size bins
     if (LaunchNo == 'run011'):
         composition = 'Sulfate'
     elif (LaunchNo == 'run013'):
@@ -476,33 +507,55 @@ def Plume(LaunchNo, Flight, Altitude):
         composition = 'Sulfate20'
     return composition
 
+def calcLapseRateTrop(df2):
+    #calculate the Lapse rate tropopause (WMO 1957) pg. 136 - 137
+    df_trop = df2[df2['Flight'] == 'Ascent']
+    df_trop.dropna(subset=['Air Temp (K)'], inplace = True)
+    df_trop = df_trop.filter(['LaunchNo', 'Altitude (km)', 'Air Temp (K)'])
 
-def Trop(Launch):
-    
-    if (Launch == 'run002'):
-        Trop = 16.6
-    elif (Launch == 'run003'):
-        Trop = 16.8
-    elif (Launch == 'run004'):
-        Trop = 16.4
-    elif (Launch == 'run005'):
-        Trop = 17.7
-    elif (Launch == 'run008'):
-        Trop = 17.7
-    elif (Launch == 'run009'):
-        Trop = 17.5
-    elif (Launch == 'run011'):
-        Trop = 17.9
-    elif (Launch == 'run013'):
-        Trop = 17.9
+    #defining the WMO tropopause (lapserate > 2 K / km instantaneous and in the next 2 )
+    df_trop['LapseRate_Inst'] = (df_trop['Air Temp (K)'].shift(-1) - df_trop['Air Temp (K)'])/(VertRes/1000)
+    df_trop['LapseRate_2km'] = df_trop['LapseRate_Inst'].rolling(20).mean().shift(-19)  #note vertical resolution is 100 m 
 
-    else:
-        Trop = np.NaN
+    df_trop['LRinst_cond_met'] = df_trop['LapseRate_Inst'].apply(lambda x: 'Y' if x >= -2 else 'N')
+    df_trop['LR2km_cond_met'] = df_trop['LapseRate_2km'].apply(lambda x: 'Y' if x >= -2 else 'N')
         
+    Launches = df2.LaunchNo.unique().tolist()
+
+    #df_AscDesc['Tropopause'] = np.nan
+    np_choices = np.array([])
+    for L in Launches:
+
+        #if L == '2020-01-27':
+            print(Launches)
+            print(L)
+            x = df_trop[(df_trop['LaunchNo'] == L) & (df_trop['Altitude (km)'] > 4.0) & (df_trop['LRinst_cond_met'] == 'Y') & (df_trop['LR2km_cond_met'] == 'Y')]
+            tropopause_ind = x.index.min()
+            tropopause = df_trop['Altitude (km)'][tropopause_ind]
+            print(tropopause)
+            #create a launch date so that if a flight covers two days, all gets included as one "launch"
+            conditions = [
+                (df2['LaunchNo'] == 'run002') ,
+                (df2['LaunchNo'] == 'run003') ,
+                (df2['LaunchNo'] == 'run004') ,
+                (df2['LaunchNo'] == 'run005') ,
+                (df2['LaunchNo'] == 'run008') ,
+                (df2['LaunchNo'] == 'run009') ,
+                (df2['LaunchNo'] == 'run011') ,
+                (df2['LaunchNo'] == 'run013') 
+                ]
+
+            np_choices = np.append(np_choices, tropopause)
+            
+    choices = np_choices.tolist()
+    df2['Tropopause']=np.select(conditions, choices, default = np.nan)
     
-    return Trop
+    #return the same df2 dataframe with a column for the lapse rate tropopause
+    return df2
+
 
 def StratTrop(Altitude, Tropopause):
+    #designate the stratosphere (for mass column and sAOD claculations based on calculated tropopause)
     if (Altitude > Tropopause):
         AtmosLayer = 'Stratosphere'
     else:
@@ -511,24 +564,40 @@ def StratTrop(Altitude, Tropopause):
     return AtmosLayer
         
 
+def morePlotsS1(df2):
+    #Figure S1
+    #rename launches for legend
+    df2["LaunchNo"]= df2["LaunchNo"].str.replace("Launch 2 - 01/22", "Jan. 22 21 UTC", case = False) 
+    df2["LaunchNo"]= df2["LaunchNo"].str.replace("Launch 5 - 01/24", "Jan. 24 17 UTC", case = False)
+    df2["LaunchNo"]= df2["LaunchNo"].str.replace("Launch 9 - 02/11", "Feb. 11", case = False) 
+    df2["LaunchNo"]= df2["LaunchNo"].str.replace("Launch 11 - 03/31", "Mar. 31", case = False) 
+    df2["LaunchNo"]= df2["LaunchNo"].str.replace("Launch 13 - 06/09", "Jun. 9", case = False) 
+    #colors for plotting
+    hueorder4 = ['Jan. 22 21 UTC', 'Jan. 24 17 UTC', 'Feb. 11', 'Mar. 31', 'Jun. 9']
+
+                 
+    fig, ax = plt.subplots(1, 1, figsize=(8, 4))
+    seaborn.set(rc={"xtick.bottom" : True, "ytick.left" : True})   
+    seaborn.set(font_scale = 7)
+    seaborn.set(style="ticks")
+    
+    df2 = df2.sort_values(by=['GMTdateYmD','Altitude (km)', 'H2OMr_frostpoint'])
+    ax = seaborn.lineplot(x="H2OMr_frostpoint", y="Altitude (km)",palette = "colorblind",
+                        hue = 'LaunchNo', hue_order = hueorder4,legend=True,
+                        sort=False, data=df2, zorder=0)
+    
+    ax.set_ylim(17,28)
+    ax.set_xlim(0.1,1000)
+    ax.set_xscale('log')
+    ax.set_xlabel("H2O (ppmv)")
+    
+
 def morePlots(df2):
     
     #customize plots
     hueorder0 = [ 'Launch 2 - 01/22', 'Launch 3 - 01/23', 'Launch 4 - Least Perturbed', 'Launch 5 - 01/24', 'Launch 8 - 01/25', 'Launch 9 - 02/11', 'Launch 11 - 03/31', 'Launch 13 - 06/09']
     hueorder4 = ['Launch 2 - 01/22', 'Launch 4 - Least Perturbed', 'Launch 5 - 01/24', 'Launch 9 - 02/11', 'Launch 11 - 03/31', 'Launch 13 - 06/09']
 
-    #Figure S1
-    fig, ax = plt.subplots(1, 1, figsize=(8, 4))
-    seaborn.set(style="whitegrid") 
-    df2 = df2.sort_values(by=['GMTdateYmD','Altitude (km)', 'H2OMr_frostpoint'])
-    ax = seaborn.lineplot(x="H2OMr_frostpoint", y="Altitude (km)",palette = "colorblind",
-                        hue = 'LaunchNo', hue_order = hueorder4, marker = '.', legend=True,
-                        sort=False, data=df2, zorder=0)
-    ax.set_ylim(17,28)
-    ax.set_xlim(0.1,1000)
-    ax.set_xscale('log')
-    ax.set_xlabel("H2O (ppmv)")
-    
 
     df2 = df2[df2['Altitude (km)'] > 2.0]
     # color palette as dictionary
@@ -546,7 +615,7 @@ def morePlots(df2):
     ax.set_ylim([17, 30])
     ax.set_xlabel(u"Effective Radius (\u03bcm)")
 
-    #figure 1a. (at vertical resolution 250m - same as size distributions in Figure1 c,d,e,g)
+    #figure 1a. (at vertical resolution 100m - same as size distributions in Figure1 c,d,e,g)
     fig, ax = plt.subplots(1, 1, figsize=(4, 4)) 
     df2 = df2.sort_values(by=['LaunchNo','Altitude (km)', 'Mass_ugpkgSTP'])
     ax = seaborn.lineplot(x="Mass_ugpkgSTP", y="Altitude (km)",palette = 'colorblind',
@@ -558,28 +627,14 @@ def morePlots(df2):
     ax.set_ylim([17, 30])
     ax.set_xlabel(u"Aerosol Dry Mass (ug $\mathregular{kg^{-1}}$)")
 
-    #figure 1b (at vertical resolution 250 m)  
-    fig, ax = plt.subplots(1, 1, figsize=(8, 4)) 
-    seaborn.set(rc={"xtick.bottom" : True, "ytick.left" : True})
-    seaborn.set(style="whitegrid")
-    fig, ax = plt.subplots(1, 1, figsize=(8, 4)) 
-    df2 = df2.sort_values(by=['LaunchNo','Altitude (km)', 'Extinction_2_K'])
-    ax = seaborn.lineplot(x="Extinction_2_K", y="Altitude (km)",palette = "colorblind",
-                        hue = 'LaunchNo',style = 'LaunchNo', 
-                        hue_order = hueorder0,  
-                        marker = '.',  legend=True,
-                        sort=False, data=df2, zorder=0)
-    ax.set_ylim(17,30)
-    ax.set_xscale('log')
-    ax.set_xlabel(u"Petters and Kreidenweis 2007 calc. Ambient \u03B5 ($\mathregular{km^{-1}}$ \u03BB = 997)")
  
-    #figure 1b (at vertical resolution 250 m)  
+    #figure 1b (at vertical resolution 100 m)  
     fig, ax = plt.subplots(1, 1, figsize=(8, 4)) 
     seaborn.set(rc={"xtick.bottom" : True, "ytick.left" : True})
     seaborn.set(style="whitegrid")
     fig, ax = plt.subplots(1, 1, figsize=(8, 4)) 
-    df2 = df2.sort_values(by=['LaunchNo','Altitude (km)', 'Extinction_2_J'])
-    ax = seaborn.lineplot(x="Extinction_2_J", y="Altitude (km)",palette = "colorblind",
+    df2 = df2.sort_values(by=['LaunchNo','Altitude (km)', 'Extinction_2_SH'])
+    ax = seaborn.lineplot(x="Extinction_2_SH", y="Altitude (km)",palette = "colorblind",
                         hue = 'LaunchNo',style = 'LaunchNo', 
                         hue_order = hueorder0,  
                         marker = '.',  legend=True,
@@ -587,25 +642,14 @@ def morePlots(df2):
     ax.set_ylim(17,30)
     ax.set_xscale('log')
     ax.set_xlabel(u"Jonsonn et al. 1995 calc. Ambient \u03B5 ($\mathregular{km^{-1}}$ \u03BB = 997)")
-    
-    #Figure S2b
-    fig, ax = plt.subplots(1, 1, figsize=(8, 4)) 
-    seaborn.set(font_scale = 4)
-    seaborn.set(rc={"xtick.bottom" : True, "ytick.left" : True})
-    seaborn.set(style="whitegrid")
-    df2 = df2.sort_values(by=['LaunchNo','Altitude (km)', 'Surface Area Ratio'])
-    ax = seaborn.lineplot(x="Surface Area Ratio", y="Altitude (km)",palette = "colorblind",
-                        hue = 'LaunchNo', hue_order = hueorder4, marker = '.',  legend=True,
-                        sort=False, data=df2, zorder=0)
-    ax.set_ylim(17,30)
-    ax.set_xlim(0.98,2.0)
-    ax.set_xlabel("Ratio of Calculated Ambient : Measured Aerosol Surface Area")
-    
-    
+     
     return
 
 #MAIN SCRIPT
 #define variables 
+S_mass = 32.065
+SO2_mass = 64.066
+H2SO4_mass = 98.079
 VertRes = 100 #vertical binning resolution
 
 if VertRes == 250: #data binned to to every 250 m
@@ -633,9 +677,9 @@ elif VertRes == 100: #data binned to to every 100 m
     vertBins = np.linspace(0.05, 30.05, 301)
     
 #read in downloadable datasets in "Supporting Data" tab from Asher et al. https://csl.noaa.gov/projects/b2sap/data.html
-dfWV = pd.read_csv('/Users/easher/Desktop/Tonga/Submission/POPSDataForPublication/H2O_table.csv', delimiter = ',', dtype=None, header = 11, engine='python')
+dfWV = pd.read_csv('/Users/asher/Documents/PapersInProgress/Tonga/Submission/POPSDataForPublication/H2O_table.csv', delimiter = ',', dtype=None, header = 11, engine='python')
 dfWV['Flight'] = 'Ascent'
-df_SO2_f = pd.read_csv('/Users/easher/Desktop/Tonga/Submission/POPSDataForPublication/SO2_table.csv', delimiter = ',', dtype=None, header = 11, engine='python')
+df_SO2_f = pd.read_csv('/Users/asher/Documents/PapersInProgress/Tonga/Submission/POPSDataForPublication/SO2_table.csv', delimiter = ',', dtype=None, header = 11, engine='python')
 df1 = getPOPSdf(vertBins)
 
 #merge with POPS data pased on altitude and flight
@@ -649,51 +693,59 @@ new_df['Pw_frostpoint'] = np.where(((new_df.LaunchNo == 'run013') | (new_df.Laun
 
 ##calculate ambient bin size based on WV on that launch date...
 new_df['Composition'] = new_df.apply(lambda x: Plume(x['LaunchNo'], x['Flight'], x['Altitude (km)']), axis=1)
-new_df['BinDp'] = new_df.apply(lambda x: KKcalcDamb(x['RH_frostpoint'], x['Air Temp (K)'], x['Composition']), axis=1)
+#new_df['BinDp'] = new_df.apply(lambda x: KKcalcDamb(x['RH_frostpoint'], x['Air Temp (K)'], x['Composition']), axis=1)
 #$wt calc
 new_df['H2SO4_%wt_amb'] = new_df.apply(lambda x: PwLookuptable(x['iMetTempCorrC'], x['Pw_frostpoint']), axis = 1)
 new_df['H2SO4_%wt_pops'] = new_df.apply(lambda x: PwLookuptable(x['POPStempC'], x['Pw_frostpoint']), axis = 1)
 #density calculation
-new_df['Density_amb'] = new_df.apply(lambda x: DensityCalc(x['H2SO4_%wt_amb'], x['iMetTempCorrC']), axis = 1)
-new_df['Density_pops'] = new_df.apply(lambda x: DensityCalc(x['H2SO4_%wt_pops'], x['POPStempC']), axis = 1)
+new_df[['Density_amb', 'Density_amb_unc']] = new_df.apply(lambda x: pd.Series(DensityCalc(x['H2SO4_%wt_amb'], x['iMetTempCorrC'])), axis = 1)
+new_df[['Density_pops', 'Density_pops_unc']] = new_df.apply(lambda x: pd.Series(DensityCalc(x['H2SO4_%wt_pops'], x['POPStempC'])), axis = 1)
 #%Wt amb diameter calculation...
-new_df['BinDp_J1995'] = new_df.apply(lambda x: Jonsson1995_calcDamb(x['Composition'], x['H2SO4_%wt_pops'], x['Density_pops'], x['H2SO4_%wt_amb'], x['Density_amb']), axis=1)
+new_df['BinDp_S&H1981'] = new_df.apply(lambda x: Steele_Hamill_calcDamb(x['Composition'], x['H2SO4_%wt_pops'], x['Density_pops'], x['H2SO4_%wt_amb'], x['Density_amb'], x['H2SO4_%wt_pops'], x['H2SO4_%wt_amb']), axis = 1)
 
 new_df['Wavelength'] = 532 #a native wavelength of both the Maïdo observatory (La Réunion) ground-based lidar CALIOP space-based lidar
-new_df['Wavelength_2'] = 997
+new_df['Wavelength_2'] = 997 #a native wavelength of OMPS-LP as discussed in Asher et al.
 
-new_df['IR_l'] = 1.38+0.00j
-new_df['IR_h'] = 1.45+0.00j
+new_df['IR_l'] = 1.38+0.00j #refractive index of pure water (not used in Asher et al.)
+new_df['IR_h'] = 1.45+0.00j #refreactive index of H2SO4, as discussed in Aasher et al.)
 
-new_df[['Extinction_K', 'Extinction_J']] = new_df.apply(lambda x: pd.Series(VPsca(x['Wavelength'], x['IR_h'], x['LaunchNo'], x['Composition'],x['RH_frostpoint'], x['Air Temp (K)'], x['H2SO4_%wt_pops'], x['Density_pops'], x['H2SO4_%wt_amb'], x['Density_amb'],
+#calculating extinction using the measured (dehydrated size distributions, as well as using KK theory and Steele and Hamill 1981 methods; discussed at length in Methods section Asher et al.). Done using the two different wavelengths defined above (532 and 997)
+new_df[['Extinction_m', 'Extinction_SH']] = new_df.apply(lambda x: pd.Series(VPsca(x['Wavelength'], x['IR_h'], x['LaunchNo'], x['Composition'],x['RH_frostpoint'], x['Air Temp (K)'], x['H2SO4_%wt_pops'], x['Density_pops'], x['H2SO4_%wt_amb'], x['Density_amb'],
                                                     x['B1'], x['B2'], x['B3'], x['B4'], x['B5'], x['B6'], x['B7'], x['B8'], x['B9'], x['B10'], x['B11'], 
                                               x['B12'], x['B13'], x['B14'], x['B15'], x['B16'], x['B17'], x['B18'], x['B19'], x['B20'])), axis=1)
-new_df[['Extinction_2_l_K', 'Extinction_2_l_J']] = new_df.apply(lambda x: pd.Series(VPsca( x['Wavelength_2'], x['IR_l'], x['LaunchNo'], x['Composition'],x['RH_frostpoint'], x['Air Temp (K)'],x['H2SO4_%wt_pops'], x['Density_pops'], x['H2SO4_%wt_amb'], x['Density_amb'],
-                                                        x['B1'], x['B2'], x['B3'], x['B4'], x['B5'], x['B6'], x['B7'], x['B8'], x['B9'], x['B10'], x['B11'], 
-                                              x['B12'], x['B13'], x['B14'], x['B15'], x['B16'], x['B17'], x['B18'], x['B19'], x['B20'])), axis=1)
-new_df[['Extinction_2_K', 'Extinction_2_J']] = new_df.apply(lambda x: pd.Series(VPsca(x['Wavelength_2'], x['IR_h'], x['LaunchNo'], x['Composition'],x['RH_frostpoint'], x['Air Temp (K)'], x['H2SO4_%wt_pops'], x['Density_pops'], x['H2SO4_%wt_amb'], x['Density_amb'],
+
+new_df[['Extinction_2_m', 'Extinction_2_SH']] = new_df.apply(lambda x: pd.Series(VPsca(x['Wavelength_2'], x['IR_h'], x['LaunchNo'], x['Composition'],x['RH_frostpoint'], x['Air Temp (K)'], x['H2SO4_%wt_pops'], x['Density_pops'], x['H2SO4_%wt_amb'], x['Density_amb'],
                                                       x['B1'], x['B2'], x['B3'], x['B4'], x['B5'], x['B6'], x['B7'], x['B8'], x['B9'], x['B10'], x['B11'], 
                                               x['B12'], x['B13'], x['B14'], x['B15'], x['B16'], x['B17'], x['B18'], x['B19'], x['B20'])), axis=1)
 
-new_df[['PartialPressure', 'unc_f']] = new_df.apply(lambda x: pd.Series(ppCalc(x['Composition'], x['H2SO4_%wt_pops'], x['iMetTempCorrC'], x['iMetPressMB'], x['Air Temp (K)'], x['B1'], x['B2'], x['B3'], x['B4'], x['B5'], x['B6'], x['B7'], x['B8'], x['B9'], x['B10'], x['B11'], x['B12'], x['B13'], x['B14'], x['B15'], x['B16'], x['B17'], x['B18'], x['B19'], x['B20'])), axis=1)
-
-#new_df['MassSm2'] = new_df.apply(lambda x: MassBCalc(x['LaunchNo'], x['Composition'], x['H2SO4_%wt_pops'], x['iMetTempCorrC'], x['iMetPressMB'], x['Air Temp (K)'], x['B1'], x['B2'], x['B3'], x['B4'], x['B5'], x['B6'], x['B7'], x['B8'], x['B9'], x['B10'], x['B11'], x['B12'], x['B13'], x['B14'], x['B15'], x['B16'], x['B17'], x['B18'], x['B19'], x['B20']), axis=1)
-new_df[['Mass', 'Mass_ugpkgSTP']] = new_df.apply(lambda x: pd.Series(MassBCalc(x['LaunchNo'], x['Composition'], x['H2SO4_%wt_pops'], x['iMetTempCorrC'], x['iMetPressMB'], x['Air Temp (K)'], x['B1'], x['B2'], x['B3'], x['B4'], x['B5'], x['B6'], x['B7'], x['B8'], x['B9'], x['B10'], x['B11'], x['B12'], x['B13'], x['B14'], x['B15'], x['B16'], x['B17'], x['B18'], x['B19'], x['B20'])), axis=1)
+#LaunchNo, Composition, perwt_pops, LFEtempC, Pressure, AirTemp,
+new_df[['Mass', 'Mass_ugpkgSTP', 'unc_f']] = new_df.apply(lambda x: pd.Series(MassBCalc(x['LaunchNo'], x['Composition'], x['H2SO4_%wt_pops'], x['POPStempC'], x['iMetPressMB'], x['Air Temp (K)'], x['B1'], x['B2'], x['B3'], x['B4'], x['B5'], x['B6'], x['B7'], x['B8'], x['B9'], x['B10'], x['B11'], x['B12'], x['B13'], x['B14'], x['B15'], x['B16'], x['B17'], x['B18'], x['B19'], x['B20'])), axis=1)
 new_df['Mass_l'] = new_df['Mass'] * (1.0 - new_df['unc_f'])
 new_df['Mass_h'] = new_df['Mass'] * (1.0 + new_df['unc_f'])
 
-new_df = new_df.filter(['Altitude (km)', 'Launch','GMTdateYmD', 'LaunchNo', 'Flight', 'iMetPressMB', 'iMetTempCorrC', 'iMetThetaK','Temp', 
+
+# df_ext = new_df.filter(['LaunchNo', 'Altitude (km)', 'Extinction_2_J'])
+# df_ext_export = df_ext.reset_index().pivot(columns='LaunchNo', index='Altitude (km)', values='Extinction_2_J')
+# df_ext_export.to_csv('/Users/asher/Desktop/Fig1bExtS&HIGOR.csv', mode='w')
+
+
+new_df = new_df.filter(['Altitude (km)', 'LaunchNo','GMTdateYmD', 'Flight', 'iMetPressMB', 'iMetTempCorrC', 'iMetThetaK','Temp', 
                         'Air Temp (K)', 'Theta', 'RH','O3ppmv', 'RH_CFH', 'H2OMr', 'H2OMr_frostpoint', 'RH_frostpoint', 'elapsedMin', 'AltitudeIMETkm','GPSlat', 'GPSlon', 'GPSaltkm', 'Wind Direction', 'Wind Speed', 'U','V',
                       'POPSflowCorrCCpS','POPSflowCCpS', 'POPStempC','ratioWidth2Flow', 'POPSbaselineStdDev','POPSavgWdithUS', 'H2SO4_%wt_amb','H2SO4_%wt_pops', 'Density_amb', 'Density_pops', 'B1', 'B2', 
                       'B3','B4','B5','B6','B7','B8','B9','B10','B11', 'B12','B13', 'B14','B15', 'B16', 'B17', 'B18', 'B19', 'B20', 'Aer_Conc', 
-                      'Dry Surface Area Density','Effective Radius','Wavelength','Composition', 'Extinction_K', 'Extinction_J','Extinction_2_l_K','Extinction_2_l_J','Extinction_2_K', 'Extinction_2_J','Mass_l', 'Mass_h', 'PartialPressure', 'unc_f', 'Mass', 'Mass_ugpkgSTP', 'BinDp', 'BinDp_J1995'], axis=1)
+                      'Dry Surface Area Density','Effective Radius','Wavelength','Composition', 'Extinction_SH','Extinction_2_m', 'Extinction_2_SH','Mass_l', 'Mass_h', 'PartialPressure', 'unc_f', 'Mass', 'Mass_ugpkgSTP', 'BinDp_S&H1981', 'Pw_frostpoint'], axis=1)
+
+
+
 
 df2 = new_df[new_df['Altitude (km)'] >= 2]
-df2['Tropopause'] = df2.apply(lambda x: Trop(x['LaunchNo']), axis = 1)
 
-a = pd.DataFrame(df2['BinDp'])
+df2 = calcLapseRateTrop(df2)
 
-b = pd.concat([pd.DataFrame(a['BinDp'].values.tolist()) for c in a.columns], 
+
+a = pd.DataFrame(df2['BinDp_S&H1981'])
+
+b = pd.concat([pd.DataFrame(a['BinDp_S&H1981'].values.tolist()) for c in a.columns], 
                  axis=1, 
                  keys=a.columns)
 
@@ -703,14 +755,12 @@ b.reset_index(drop=False, inplace = True)
 df2 = pd.concat([df2, b], axis = 1)
 df2.reset_index(drop=True, inplace = True)
 
-
-df2[['SAD_rh_K', 'SAD_rh_J']] = df2.apply(lambda x: pd.Series(SADrh( x['Composition'], x['RH_frostpoint'], x['Air Temp (K)'], x['H2SO4_%wt_pops'], x['Density_pops'], x['H2SO4_%wt_amb'], x['Density_amb'],
+#calculate ambient aerosol surface area density using different methods
+df2[['SAD_meas', 'SAD_SH']] = df2.apply(lambda x: pd.Series(SAD( x['Composition'], x['RH_frostpoint'], x['Air Temp (K)'], x['H2SO4_%wt_pops'], x['Density_pops'], x['H2SO4_%wt_amb'], x['Density_amb'],
                                           x['B1'], x['B2'], x['B3'], x['B4'], x['B5'], x['B6'], x['B7'], x['B8'], x['B9'], x['B10'], x['B11'], 
                                               x['B12'], x['B13'], x['B14'], x['B15'], x['B16'], x['B17'], x['B18'], x['B19'], x['B20'])), axis=1)
 
-df2['Surface Area Ratio'] = df2['SAD_rh_J']/ df2['Dry Surface Area Density']
-df2['Surface Area Ratio_2'] = (df2['SAD_rh_J']-df2['SAD_rh_K'])/df2['SAD_rh_J']
-df2['Surface Area Ratio_3'] = df2['SAD_rh_K']/ df2['Dry Surface Area Density']
+# df2['Surface Area Ratio'] = df2['SAD_SH']/ df2['SAD_meas']
 
 
 
@@ -742,79 +792,87 @@ if plots == 1:
 
     #create partial pressure combined SO2 and H2SOdataset
     df2.drop(columns=['index'], inplace = True)
-    df_H2SO4_PP = df2.filter(['GMTdateYmD', 'LaunchNo', 'Altitude (km)', 'PartialPressure', 'unc_f'])
-    df_H2SO4_PP['pp_ub'] = 1.0 + df_H2SO4_PP['unc_f']
-    df_H2SO4_PP['pp_lb'] = 1.0 - df_H2SO4_PP['unc_f']
-    df_H2SO4_PP = df_H2SO4_PP[df_H2SO4_PP['LaunchNo'] != 'Launch 3 - 01/23']
-    df_H2SO4_PP = df_H2SO4_PP[df_H2SO4_PP['LaunchNo'] != 'Launch 9 - 02/11']
-    df_H2SO4_PP = df_H2SO4_PP[df_H2SO4_PP['LaunchNo'] != 'Launch 11 - 03/31']    
-    df_H2SO4_PP = df_H2SO4_PP[df_H2SO4_PP['LaunchNo'] != 'Launch 13 - 06/09']
-    df_H2SO4_PP = df_H2SO4_PP[df_H2SO4_PP['LaunchNo'] != 'Launch 4 - Least Perturbed']
-
+    df_H2SO4_mmr = df2.filter(['GMTdateYmD', 'LaunchNo', 'Altitude (km)', 'Mass_ugpkgSTP', 'unc_f'])
+    df_H2SO4_mmr['mmr_ub'] = 1.0 + df_H2SO4_mmr['unc_f']
+    df_H2SO4_mmr['mmr_lb'] = 1.0 - df_H2SO4_mmr['unc_f']
+    df_H2SO4_mmr = df_H2SO4_mmr[df_H2SO4_mmr['LaunchNo'] != 'Launch 3 - 01/23']
+    df_H2SO4_mmr = df_H2SO4_mmr[df_H2SO4_mmr['LaunchNo'] != 'Launch 9 - 02/11']
+    df_H2SO4_mmr = df_H2SO4_mmr[df_H2SO4_mmr['LaunchNo'] != 'Launch 11 - 03/31']    
+    df_H2SO4_mmr = df_H2SO4_mmr[df_H2SO4_mmr['LaunchNo'] != 'Launch 13 - 06/09']
+    df_H2SO4_mmr = df_H2SO4_mmr[df_H2SO4_mmr['LaunchNo'] != 'Launch 4 - Least Perturbed']
+    df_H2SO4_mmr['Mass_ugpkgSTP'] = df_H2SO4_mmr['Mass_ugpkgSTP'] / H2SO4_mass * S_mass
     
-    filter1 = df_H2SO4_PP["GMTdateYmD"]!="2022-01-24"
-    filter2 = df_H2SO4_PP["Altitude (km)"] < 28
-    df_H2SO4_PP.where(filter1 | filter2, inplace = True)
+    filter1 = df_H2SO4_mmr["GMTdateYmD"]!="2022-01-24"
+    filter2 = df_H2SO4_mmr["Altitude (km)"] < 28
+    #df_H2SO4_PP.where(filter1 | filter2, inplace = True)
 
-    df_H2SO4_PP['Compound'] = 'eH2SO4'
-    df_SO2_f['Compound'] = 'SO2'
+    df_H2SO4_mmr['Compound'] = 'S in eH2SO4'
+    df_SO2_f['Compound'] = 'S in SO2'
     
-    df_SO2_f['PartialPressure'] = df_SO2_f.apply(lambda x: LLD(x['LaunchNo'], x['PartialPressure']), axis=1)
+    df_SO2_f['Mass_ugpkgSTP'] = df_SO2_f.apply(lambda x: LLD(x['LaunchNo'], x['PartialPressure'], x['ugpKgAirSTP']), axis=1)
+    df_SO2_f = df_SO2_f[df_SO2_f['Altitude (km)'] >= 13.0] #on 1/25 a few high points of SO2 in the troposphere
+    df_SO2_f['Mass_ugpkgSTP'] = df_SO2_f['Mass_ugpkgSTP'] / SO2_mass * S_mass
     df_SO2_f['unc_f'] = 0.2
-    df_SO2_f['pp_ub'] = 1.0 + df_SO2_f['unc_f']
-    df_SO2_f['pp_lb'] = 1.0 - df_SO2_f['unc_f']
+    df_SO2_f['mmr_ub'] = 1.0 + df_SO2_f['unc_f']
+    df_SO2_f['mmr_lb'] = 1.0 - df_SO2_f['unc_f']
     df_SO2_fa = df_SO2_f[df_SO2_f['GMTdateYmD'] == '2022-01-22']
     df_SO2_fb = df_SO2_f[df_SO2_f['GMTdateYmD'] == '2022-01-24']
     df_SO2_fc = df_SO2_f[df_SO2_f['GMTdateYmD'] == '2022-01-25']
     
-    df_H2SO4_PPa = df_H2SO4_PP[df_H2SO4_PP['GMTdateYmD'] == '2022-01-22']
-    df_H2SO4_PPb = df_H2SO4_PP[df_H2SO4_PP['GMTdateYmD'] == '2022-01-24']
-    df_H2SO4_PPc = df_H2SO4_PP[df_H2SO4_PP['GMTdateYmD'] == '2022-01-25']
+    df_H2SO4_mmra = df_H2SO4_mmr[df_H2SO4_mmr['GMTdateYmD'] == '2022-01-22']
+    df_H2SO4_mmrb = df_H2SO4_mmr[df_H2SO4_mmr['GMTdateYmD'] == '2022-01-24']
+    df_H2SO4_mmrc = df_H2SO4_mmr[df_H2SO4_mmr['GMTdateYmD'] == '2022-01-25']
 
-    df_SO2_f1 = pd.concat([df_SO2_f, df_H2SO4_PP], ignore_index=True)
-    df_SO2_f1 = df_SO2_f1.sort_values(by=['LaunchNo','Altitude (km)', 'PartialPressure'])
+    df_SO2_f1 = pd.concat([df_SO2_f, df_H2SO4_mmr], ignore_index=True)
+    df_SO2_f1 = df_SO2_f1.sort_values(by=['LaunchNo','Altitude (km)', 'Mass_ugpkgSTP'])
     
     
     #Figure 2a,b,c
-    seaborn.set(font_scale = 1)
+    seaborn.set(rc={"xtick.bottom" : True, "ytick.left" : True})   
+    seaborn.set(font_scale = 7)
+    seaborn.set(style="ticks")
+
     fig, ax = plt.subplots(1, 1, figsize=(8, 4)) 
-    seaborn.set(rc={"xtick.bottom" : True, "ytick.left" : True})  
+  
     df_SO2_f1['Date'] = df_SO2_f1['GMTdateYmD']
-    df_SO2_f1 = df_SO2_f1.sort_values(by=['Date','Altitude (km)', 'PartialPressure'])
+    df_SO2_f1 = df_SO2_f1.sort_values(by=['Date','Altitude (km)', 'Mass_ugpkgSTP'])
     
     g = seaborn.relplot(data=df_SO2_f1, kind="line", col = 'Date',col_wrap = 3,
-                        col_order= ['2022-01-22', '2022-01-24', '2022-01-25'], x='PartialPressure', 
-                        y='Altitude (km)', hue='Compound', marker = '.', 
+                        col_order= ['2022-01-22', '2022-01-24', '2022-01-25'], x='Mass_ugpkgSTP', 
+                        y = 'Altitude (km)', hue ='Compound', hue_order = ['S in SO2', 'S in eH2SO4'], marker = '.', 
                         palette= "colorblind", sort=False, facet_kws={'sharey': True, 'sharex': True})
 
-    g.set(ylim=(16, 30))
+    g.set(ylim=(16, 28))
+    g.set(xlim=(0.05,1000))
     g.set(xscale = 'log')
-    g.set(xlabel = 'Partial Pressure (mPa)') #g.set(xlabel = 'Mixing Ratio (ppb)')
-    df_SO2_f['PartialPressure']
+    g.set(xlabel = 'Mass Mixing Ratio (ug S $\mathregular{kg^{-1}}$) Air') #g.set(xlabel = 'Mixing Ratio (ppb)')
+
     
     ax = g.facet_axis(0, 0)
-    ax.axvline(x=0.03, color='tab:blue', linestyle = '--')
-    ax.fill_betweenx(y=df_SO2_fa['Altitude (km)'], x1=df_SO2_fa['PartialPressure']*df_SO2_fa['pp_lb'], x2 = df_SO2_fa['PartialPressure']*df_SO2_fa['pp_ub'], color="blue", alpha=0.3)
-    ax.fill_betweenx(y=df_H2SO4_PPa['Altitude (km)'], x1=df_H2SO4_PPa['PartialPressure']*df_H2SO4_PPa['pp_lb'], x2 = df_H2SO4_PPa['PartialPressure']*df_H2SO4_PPa['pp_ub'], color="orange", alpha=0.3)
+    #ax.axvline(x=0.03, color='tab:blue', linestyle = '--')
+    ax.fill_betweenx(y=df_H2SO4_mmra['Altitude (km)'], x1=df_H2SO4_mmra['Mass_ugpkgSTP']*df_H2SO4_mmra['mmr_lb'], x2 = df_H2SO4_mmra['Mass_ugpkgSTP']*df_H2SO4_mmra['mmr_ub'], color="orange", alpha=0.3)
+    ax.fill_betweenx(y=df_SO2_fa['Altitude (km)'], x1=df_SO2_fa['Mass_ugpkgSTP']*df_SO2_fa['mmr_lb'], x2 = df_SO2_fa['Mass_ugpkgSTP']*df_SO2_fa['mmr_ub'], color="blue", alpha=0.3)
+
     ax = g.facet_axis(0, 1)
-    ax.axvline(x=0.02, color='tab:blue', linestyle = '--')
-    ax.fill_betweenx(y=df_SO2_fb['Altitude (km)'], x1=df_SO2_fb['PartialPressure']*df_SO2_fb['pp_lb'], x2 = df_SO2_fb['PartialPressure']*df_SO2_fb['pp_ub'], color="blue", alpha=0.3)
-    ax.fill_betweenx(y=df_H2SO4_PPb['Altitude (km)'], x1=df_H2SO4_PPb['PartialPressure']*df_H2SO4_PPb['pp_lb'], x2 = df_H2SO4_PPb['PartialPressure']*df_H2SO4_PPb['pp_ub'], color="orange", alpha=0.3)
+    #ax.axvline(x=0.02, color='tab:blue', linestyle = '--')
+    ax.fill_betweenx(y=df_H2SO4_mmrb['Altitude (km)'], x1=df_H2SO4_mmrb['Mass_ugpkgSTP']*df_H2SO4_mmrb['mmr_lb'], x2 = df_H2SO4_mmrb['Mass_ugpkgSTP']*df_H2SO4_mmrb['mmr_ub'], color="orange", alpha=0.3)
+    ax.fill_betweenx(y=df_SO2_fb['Altitude (km)'], x1=df_SO2_fb['Mass_ugpkgSTP']*df_SO2_fb['mmr_lb'], x2 = df_SO2_fb['Mass_ugpkgSTP']*df_SO2_fb['mmr_ub'], color="blue", alpha=0.3)
+
     ax = g.facet_axis(0, 2)
-    ax.axvline(x=0.037, color='tab:blue', linestyle = '--')
-    ax.fill_betweenx(y=df_SO2_fc['Altitude (km)'], x1=df_SO2_fc['PartialPressure']*df_SO2_fc['pp_lb'], x2 = df_SO2_fc['PartialPressure']*df_SO2_fc['pp_ub'], color="blue", alpha=0.3)
-    ax.fill_betweenx(y=df_H2SO4_PPc['Altitude (km)'], x1=df_H2SO4_PPc['PartialPressure']*df_H2SO4_PPc['pp_lb'], x2 = df_H2SO4_PPc['PartialPressure']*df_H2SO4_PPc['pp_ub'], color="orange", alpha=0.3)
+    #ax.axvline(x=0.037, color='tab:blue', linestyle = '--')
+    ax.fill_betweenx(y=df_H2SO4_mmrc['Altitude (km)'], x1=df_H2SO4_mmrc['Mass_ugpkgSTP']*df_H2SO4_mmrc['mmr_lb'], x2 = df_H2SO4_mmrc['Mass_ugpkgSTP']*df_H2SO4_mmrc['mmr_ub'], color="orange", alpha=0.3)
+    ax.fill_betweenx(y=df_SO2_fc['Altitude (km)'], x1=df_SO2_fc['Mass_ugpkgSTP']*df_SO2_fc['mmr_lb'], x2 = df_SO2_fc['Mass_ugpkgSTP']*df_SO2_fc['mmr_ub'], color="blue", alpha=0.3)
 
     
     df4 = df2[df2['Altitude (km)'] > df2['Tropopause']] 
-    df_POPS_OMPS = df4[['GMTdateYmD', 'LaunchNo', 'Altitude (km)', 'Tropopause', 'iMetThetaK', 'Extinction_2_l_K', 'Extinction_2_l_J','Extinction_2_K','Extinction_2_J','Mass', 'Mass_l', 'Mass_h']] #'MassSm2'
-    df_POPS_OMPS.to_csv('/Users/easher/Desktop/df_POPS_OMPS_unc.csv', mode='w')
+    df_POPS_OMPS = df4[['GMTdateYmD', 'LaunchNo', 'Altitude (km)', 'Tropopause', 'iMetThetaK', 'Extinction_2_m', 'Extinction_2_SH','Mass', 'Mass_l', 'Mass_h']] #'MassSm2'
+    df_POPS_OMPS.to_csv('/Users/asher/Desktop/df_POPS_OMPS_unc.csv', mode='w')
     
 
-    df3  = df2[['GMTdateYmD', 'LaunchNo', 'iMetThetaK','Altitude (km)', 'Tropopause', 'Extinction_K', 'Mass', 'unc_f']] #'MassSm2'
+    df3  = df2[['GMTdateYmD', 'LaunchNo', 'iMetThetaK','Altitude (km)', 'Tropopause', 'Mass', 'unc_f']] #'MassSm2' Extinction_SH',
     df3['unc_mass'] = (df3['Mass'] * df3['unc_f'])**2
     
-    df3['Extinction_K'] = df3['Extinction_K']*VertRes/1000 #units of extinction are already km-1 (multiply by VertRes (km) prior to summing to yield sAOD)
+    #df3['Extinction_SH'] = df3['Extinction_SH']*VertRes/1000 #units of extinction are already km-1 (multiply by VertRes (km) prior to summing to yield sAOD)
     
     #df3['AerosolMass'] = df3['MassSm2'] #g/kg * density (1.225 g/m3) = ug/m...ug to g (x1E6)...divided by MW H2SO42-*32.06 & integrate vertically g S/m2
     df3['AerosolMass'] = df3['Mass']
@@ -859,10 +917,12 @@ if plots == 1:
     x = np.arange(len(Date))
     
     #figure 2d
+    
+    seaborn.set(style="ticks")
     fig, ax = plt.subplots()
-    rects1 = ax.bar(x - width, np.round(dfTotS_mass, 5), width, label='Total S in [SO2 + eH2SO4]', yerr = dfTotS_mass_unc)
-    rects2 = ax.bar(x, np.round(dfH2SO4_mass, 5), width, label='S in eH2SO4', yerr = dfH2SO4_mass_unc)
-    rects3 = ax.bar(x + width, np.round(dfSO2_mass,5), width, label='S in SO2', yerr = dfSO2_mass_unc)  
+    rects1 = ax.bar(x - width, np.round(dfSO2_mass,4), width, label='S in SO2', yerr = dfSO2_mass_unc)  
+    rects2 = ax.bar(x, np.round(dfH2SO4_mass, 4), width, label='S in eH2SO4', yerr = dfH2SO4_mass_unc)
+    rects3 = ax.bar(x + width, np.round(dfTotS_mass, 4), width, label='Total S in [SO2 + eH2SO4]', yerr = dfTotS_mass_unc)
     # Add some text for labels, title and custom x-axis tick labels, etc.
     ax.set_ylabel(u"Plume S Mass (g S $\mathregular{m^{-2}}$)", size = 14)
     ax.set_title('Summary')
@@ -875,4 +935,5 @@ if plots == 1:
     plt.show()
     
     #show plots from Asher et al., in review 2023
-    morePlots(df2)
+    #morePlots(df2)
+    morePlotsS1(df2)
