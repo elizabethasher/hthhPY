@@ -330,7 +330,7 @@ Fit['Mass']  = Fit['Mass (Tg S) POPS']
 Fit['Massh']  = Fit['Mass (Tg S) POPS max']
 Fit['Massl']  = Fit['Mass (Tg S) POPS min']
 Fit.sort_values(by=['Days'], inplace=True, ascending=True) # This now sorts in date order
-
+Fit = Fit.round(3)
 SO2 = pd.DataFrame()
 SO2['Days'] = pd.Series([0, 75])
 SO2['SO2l']  = 0.195
@@ -357,6 +357,7 @@ plt.show()
 
 #dataframe used to plot Figure 4bAsher et al.
 Fit2 = Fit[Fit['Period'] == 'SO2 conversion to H2SO4 aerosol']
+Fit2 = Fit2.round(3)
 Fit2['eH2SO4 production'] = np.log(0.205/(0.205-(Fit2['Mass (Tg S) POPS']-0.0005)))
 #0.195 - 0.215 Tg S are the Tg S injected SO2, according to satellite data (range stated by Millan et al. 2022 and supported by Carn et al. 2022). These are used as the initial injection estimates of S, to determine the estimated lifetime.
 # -0.0005 or 0.03 initial S amounts (0.0005 is the measured background on 1/10, 0.03 Tg S is used as an example of how much slower the Tstrat would be if the aerosol were not all composed of H2SO4)
